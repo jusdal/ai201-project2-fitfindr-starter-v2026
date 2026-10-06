@@ -60,6 +60,9 @@
 ### `search_listings`
 
 - **What it does:** Finds the listings that match a keyword description, keeping only those that fit the size and price limits, best match first.
+  - **Scoring:** A listing's score is the number of description keywords (lowercased, stopwords removed) that appear in its `title`, `description`, `category`, `style_tags`, `colors` or `brand`. Listings that score 0 are dropped, and the rest are sorted highest score first.
+  - **Size:** Sizes match by whole token: the listing's size is split on `/` and anything in parentheses is dropped, so `M` matches `S/M` but `S` doesn't match `US 9`. Any `One Size` listing matches every size, and a size of `None` skips the size filter.
+  - **Price:** `max_price` is inclusive (`price <= max_price`), and `None` skips the price filter.
 - **Inputs:** `description` (str), `size` (str or None), `max_price` (float or None)
 - **Returns:** A list of up to 10 listing dicts, best match first. Each has `id`, `title`, `description`, `category`, `style_tags` (list), `size`, `condition`, `price` (float), `colors` (list), `brand` (str or None) and `platform`.
 - **When it has nothing:** An empty list, `[]`.
@@ -69,11 +72,11 @@
 - **What it does:** Asks the model for one or two outfits built around the new item, using pieces from the user's wardrobe.
 - **Inputs:** `new_item` (dict, a listing dict), `wardrobe` (dict with an `items` list)
 - **Returns:** A non-empty string of outfit suggestions that name specific wardrobe pieces by their `name`.
-- **When it has nothing:** If the wardrobe is empty, it returns a non-empty string of general styling advice for the item. It never returns `""`.
+- **When it has nothing:** If the wardrobe is empty, it returns a non-empty string of general styling advice for the item. It never returns `""`: if the model's response is empty, it returns a fixed sentence of general styling advice instead.
 
 ### `create_fit_card`
 
-- **What it does:** Asks the model for a 2–4 sentence social-media caption about the find and its outfit.
+- **What it does:** Asks the model for a 2–4 sentence social-media caption about the find and its outfit, written like a real post, not a product listing.
 - **Inputs:** `outfit` (str), `new_item` (dict, a listing dict)
 - **Returns:** A caption string that mentions the item's `title`, `price` and `platform` once each.
 - **When it has nothing:** If `outfit` is empty or only whitespace, it returns the error string `"Can't write a fit card without an outfit suggestion."` and does not call the model.
