@@ -21,11 +21,96 @@ the description has to say what is *in* the list.
 """
 
 import config  # noqa: F401 — you'll use this in search_listings
+import re
 from generate import generate
 from utils.data_loader import load_listings
 
-
 # ── Tool 1: search_listings ───────────────────────────────────────────────────
+
+_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "but",
+    "by",
+    "for",
+    "if",
+    "in",
+    "into",
+    "is",
+    "it",
+    "no",
+    "not",
+    "of",
+    "on",
+    "or",
+    "such",
+    "that",
+    "the",
+    "their",
+    "then",
+    "there",
+    "these",
+    "they",
+    "this",
+    "to",
+    "was",
+    "will",
+    "with",
+}
+
+
+def _keywords(text: str) -> set[str]:
+    """
+    Return a set of keywords from a string, lowercased and stripped of stopwords.
+
+    Args:
+        text: a string to extract keywords from
+
+    Returns:
+        A set of keywords.
+    """
+    words = re.findall(r"[a-z0-9']+", (text or "").lower())
+    return {w for w in words if w not in _STOPWORDS and len(w) > 1}
+
+
+def _size_tokens(size: str) -> set[str]:
+    """
+    Return a set of tokens from a size string, lowercased.
+
+    Args:
+        size: a size string to extract tokens from
+
+    Returns:
+        A set of size tokens.
+    """
+    cleaned = re.sub(r"\([^)]*\)", " ", size or "")  # remove parenthetical content
+    parts = [p.strip().upper() for p in cleaned.split("/")]
+    return {p for p in parts if p}
+
+
+def _size_matches(wanted: str, listing_size: str) -> bool:
+    """
+    Determine if a listing size matches a wanted size.
+
+    Args:
+        wanted: the desired size string
+        listing_size: the size string from the listing
+
+    Returns:
+        True if the listing size matches the wanted size, False otherwise.
+    """
+    if not wanted:
+        return True  # No size filtering if wanted is None or empty
+    listing_tokens = _size_tokens(listing_size)
+    if any(token.startswith("ONE SIZE") for token in listing_tokens):
+        return True  # "One Size" matches any wanted size
+    return bool(_size_tokens(wanted) & listing_tokens)  # Check for intersection
+
 
 def search_listings(
     description: str,
@@ -84,6 +169,7 @@ def search_listings(
 
 # ── Tool 2: suggest_outfit ────────────────────────────────────────────────────
 
+
 def suggest_outfit(new_item: dict, wardrobe: dict) -> str:
     """
     Given a thrifted item and the user's wardrobe, suggest one or two outfits.
@@ -117,6 +203,7 @@ def suggest_outfit(new_item: dict, wardrobe: dict) -> str:
 
 
 # ── Tool 3: create_fit_card ───────────────────────────────────────────────────
+
 
 def create_fit_card(outfit: str, new_item: dict) -> str:
     """
