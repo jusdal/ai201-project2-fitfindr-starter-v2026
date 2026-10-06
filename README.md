@@ -41,6 +41,7 @@
 
 <!-- Three or four sentences: what a user asks for, and what they get back. -->
 
+FitFindr helps someone shop secondhand clothes by describing what they want in plain language, like "vintage graphic tee under $30, size M". It searches a set of listings from depop, poshmark and thredUp for the best match within their size and price, then asks a model for one or two outfits that pair the find with pieces already in their wardrobe. They get back the item (title, price and platform), the outfit suggestions, and a short social-media caption, the "fit card", about the find. If nothing matches, they get no outfit or caption, just a message that says what to change: the size, the max price, or the keywords.
 
 
 ---
@@ -96,13 +97,24 @@
      The grader checks your code against what you claim here, so the file and
      function have to be real. -->
 
-**Branch rule:** If `search_listings` returns an empty list, put a message in `session["error"]` that tells the user what to change (for example, loosen the size, raise the max price, or use different keywords), and return the session without calling `suggest_outfit` or `create_fit_card`. Otherwise, put the first result in `session["selected_item"]` and go to `suggest_outfit`.
+**Branch rule:** If `search_listings` returns an empty list, put a message in `session["error"]` that tells the user what to change (drop or change the size, raise the max price, or use broader keywords), and return the session without calling `suggest_outfit` or `create_fit_card`. Otherwise, put the first result in `session["selected_item"]` and go to `suggest_outfit`.
 
 **Where it lives:** `agent.py::run_agent`
 
-**How the query is parsed:** <!-- regex, string splitting, or asking the model — say which -->
+**How the query is parsed:** With regex, in `agent.py::parse_query`, with no model call. It pulls out three things and removes each one from the query once it's found:
+- **Price:** a number after `under`, `below`, `less than`, `max`, `up to` or `at most`, or a `$` amount such as `$40 or less`, becomes `max_price` (float).
+- **Size:** the word `size` followed by a letter size (`XXS` to `XXL`), `US 9`, `W30` / `W30 L30` or `one size` becomes `size`, uppercased. A size without the word `size` in front, like "in a medium", isn't picked up.
+- **Description:** whatever is left, with filler such as "looking for", "I want" and "a" taken out, becomes `description`.
 
-**What moves through the session:** <!-- which fields, in what order -->
+A part the query doesn't mention comes back as `None`. For example, `"vintage graphic tee under $30, size M"` gives `{"description": "vintage graphic tee", "size": "M", "max_price": 30.0}`.
+
+**What moves through the session:** Each tool's result goes into the session, and the next tool reads its inputs back out of the session, never from a local variable.
+1. `query`, and `wardrobe` from the caller, are set by `new_session()`.
+2. `parsed` holds `parse_query(query)`.
+3. `search_results` holds `search_listings(parsed["description"], parsed["size"], parsed["max_price"])`.
+4. If `search_results` is empty, `error` is set and the run stops, leaving `selected_item`, `outfit_suggestion` and `fit_card` as `None`. Otherwise `selected_item` is set to `search_results[0]`.
+5. `outfit_suggestion` holds `suggest_outfit(selected_item, wardrobe)`.
+6. `fit_card` holds `create_fit_card(outfit_suggestion, selected_item)`.
 
 ---
 
@@ -116,8 +128,17 @@
 **One full query**
 
 ```
-$ python app.py ask '...'
+$ python app.py ask 'vintage graphic tee under $30'
+  Found:    Y2K Baby Tee — Butterfly Print — $18.0 on depop
 
+  Outfit:   Here are two ways to style the Y2K Baby Tee — Butterfly Print using only the items already in your wardrobe:
+
+* **Streetwear Contrast:** Pair the baby tee with your **Baggy straight-leg jeans, dark wash** to balance out the fitted crop of the shirt. Add the **Chunky white sneakers** for footwear, layer the **Vintage black denim jacket** over top, and finish the look with the **Black crossbody bag**.
+* **Casual Edgy:** Tuck the baby tee into your **Wide-leg khaki trousers**, and thread the **Brown leather belt** through the waistbands to add definition. Ground the outfit with your **Black combat boots** and layer the **Black cropped zip hoodie** over your shoulders or wear it zipped up for a textured contrast.
+
+  Fit card: Found this adorable Y2K Baby Tee — Butterfly Print on depop for just $18.00 and I am so obsessed. I threw it on with baggy dark wash jeans and chunky sneakers for that classic early 2000s streetwear contrast, but it looks just as good dressed down with wide-leg trousers and combat boots.
+
+0 model calls this session, 2 served from cache
 ```
 
 **The three tools, tested one at a time**
@@ -153,15 +174,15 @@ Finally found a pair of Vintage Levi's 501 Jeans — Medium Wash that actually f
 
 **Moment 1**
 
-- *What I asked for:*
-- *What came back:*
-- *What I changed:*
+- *What I asked for:* I gave Claude my branch rule and asked it to fill in `run_agent()` in `agent.py`, parsing the query with regex.
+- *What came back:* A loop that worked on both paths, but `parse_query("looking for a vintage graphic tee under $30")` returned the description `"a vintage graphic tee"`, with a stray "a".
+- *What I changed:* I added `a`, `an` and `the` to the filler words the parser removes, so the description is now `"vintage graphic tee"`.
 
 **Moment 2**
 
-- *What I asked for:*
-- *What came back:*
-- *What I changed:*
+- *What I asked for:* I asked Claude to put every tool result in the session and have each next call read its inputs from the session, not from a value passed straight across.
+- *What came back:* The search step copied `session["parsed"]` into a local `parsed` variable and passed that to `search_listings`, so the call line didn't show that its inputs came from the session.
+- *What I changed:* I removed the local copy, so the call reads `session["parsed"]["description"]`, `["size"]` and `["max_price"]` directly. A run with `suggest_outfit` wrapped to record its input then confirmed it received the same object as `session["selected_item"]` (`lst_002`, Y2K Baby Tee — Butterfly Print).
 
 <!-- ═══════════════════════ UNIT 4 — THE TEST ═══════════════════════
 
