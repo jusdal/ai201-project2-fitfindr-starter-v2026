@@ -93,7 +93,7 @@ def _size_tokens(size: str) -> set[str]:
     return {p for p in parts if p}
 
 
-def _size_matches(wanted: str, listing_size: str) -> bool:
+def _size_matches(wanted: str | None, listing_size: str) -> bool:
     """
     Determine if a listing size matches a wanted size.
 
@@ -163,8 +163,34 @@ def search_listings(
     Test it from a terminal before you move on:
         python -c "from tools import search_listings; print(search_listings('graphic tee', max_price=30))"
     """
-    # TODO: replace this with your implementation
-    return []
+    wanted = _keywords(description)
+    if not wanted:
+        return []
+
+    scored = []
+    for listing in load_listings():
+        if max_price is not None and listing["price"] > max_price:
+            continue
+        if not _size_matches(size, listing["size"]):
+            continue
+
+        searchable = " ".join(
+            [
+                listing["title"],
+                listing["description"],
+                listing["category"],
+                " ".join(listing["style_tags"]),
+                " ".join(listing["colors"]),
+                listing["brand"] or "",
+            ]
+        )
+        score = len(wanted & _keywords(searchable))
+        if score > 0:
+            scored.append((score, listing))
+
+    # sorted() is stable, so ties keep their order from the data file
+    scored.sort(key=lambda pair: pair[0], reverse=True)
+    return [listing for _, listing in scored[: config.SEARCH_RESULT_LIMIT]]
 
 
 # ── Tool 2: suggest_outfit ────────────────────────────────────────────────────
@@ -198,8 +224,67 @@ def suggest_outfit(new_item: dict, wardrobe: dict) -> str:
     Test it from a terminal before you move on:
         python -c "from tools import suggest_outfit; from utils.data_loader import get_example_wardrobe, load_listings; print(suggest_outfit(load_listings()[0], get_example_wardrobe()))"
     """
-    # TODO: replace this with your implementation
-    return ""
+    item_text = _describe_item(new_item)
+    items = (wardrobe or {}).get("items") or []
+
+    if not items:
+        prompt = (
+            f"Someone is thinking about buying this thrifted piece:\n{item_text}\n\n"
+            "They haven't told us what's in their wardrobe. Give one or two "
+            "outfit ideas built around this piece, using common staples "
+            "(e.g. jeans, a plain tee, sneakers) rather than specific items "
+            "they own. Keep it to a short paragraph or a few bullet points."
+        )
+    else:
+        wardrobe_text = "\n".join(_describe_wardrobe_item(i) for i in items)
+        prompt = (
+            f"Someone is thinking about buying this thrifted piece:\n{item_text}\n\n"
+            f"Here is what's already in their wardrobe:\n{wardrobe_text}\n\n"
+            "Suggest one or two outfits built around the new piece. Each outfit "
+            "must name the specific wardrobe pieces it uses, exactly as they're "
+            "named above. Only use pieces from the list. Keep it to a short "
+            "paragraph or a few bullet points."
+        )
+
+    response = generate(prompt, system=_STYLIST_SYSTEM)
+    if response.strip():
+        return response
+    return (
+        f"Try the {new_item.get('title', 'piece')} with simple basics — straight "
+        "jeans, a plain tee and clean sneakers — and let it be the focal point."
+    )
+
+
+_STYLIST_SYSTEM = (
+    "You are a stylist who helps people style secondhand clothing. Be specific "
+    "and practical. Never invent clothing the user owns."
+)
+
+
+def _describe_item(item: dict) -> str:
+    """Format a listing dict as a few lines for a prompt. Brand may be None."""
+    lines = [
+        f"- Title: {item.get('title', 'Unknown item')}",
+        f"- Category: {item.get('category', 'unknown')}",
+        f"- Colors: {', '.join(item.get('colors') or []) or 'unknown'}",
+        f"- Style: {', '.join(item.get('style_tags') or []) or 'unknown'}",
+        f"- Description: {item.get('description', '')}",
+    ]
+    if item.get("brand"):
+        lines.append(f"- Brand: {item['brand']}")
+    return "\n".join(lines)
+
+
+def _describe_wardrobe_item(item: dict) -> str:
+    """Format one wardrobe item as a single prompt line. Notes may be None."""
+    line = (
+        f"- {item.get('name', 'Unnamed item')} ({item.get('category', 'unknown')}; "
+        f"colors: {', '.join(item.get('colors') or []) or 'unknown'}; "
+        f"style: {', '.join(item.get('style_tags') or []) or 'unknown'})"
+    )
+    if item.get("notes"):
+        line += f" — {item['notes']}"
+    return line
 
 
 # ── Tool 3: create_fit_card ───────────────────────────────────────────────────
@@ -239,5 +324,24 @@ def create_fit_card(outfit: str, new_item: dict) -> str:
     Test it from a terminal before you move on:
         python -c "from tools import create_fit_card; from utils.data_loader import load_listings; print(create_fit_card('jeans and white sneakers', load_listings()[0]))"
     """
-    # TODO: replace this with your implementation
-    return ""
+    if not outfit or not outfit.strip():
+        return "Can't write a fit card without an outfit suggestion."
+
+    prompt = (
+        f"Write a social media caption about this thrifted find:\n"
+        f"{_describe_item(new_item)}\n"
+        f"- Price: ${new_item.get('price', 0):.2f}\n"
+        f"- Platform: {new_item.get('platform', 'a thrift app')}\n\n"
+        f"How it's being styled:\n{outfit}\n\n"
+        "Write two to four sentences, in first person, the way someone would "
+        "actually post it — casual, not a product description. Mention the "
+        "item's title, its price and the platform exactly once each. Be "
+        "specific about the vibe of the outfit. Return only the caption."
+    )
+    return generate(prompt, system=_CAPTION_SYSTEM)
+
+
+_CAPTION_SYSTEM = (
+    "You write short, natural social media captions for people showing off "
+    "secondhand finds. Sound like a real person, not a brand."
+)

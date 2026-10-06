@@ -123,18 +123,21 @@ $ python app.py ask '...'
 **The three tools, tested one at a time**
 
 ```
-$ python -c "from tools import search_listings; print(search_listings('graphic tee', max_price=30))"
-
+$ python -c "from tools import search_listings; print([(l['title'], l['size'], l['price']) for l in search_listings('graphic tee', size='L', max_price=30)])"
+[('Graphic Tee — 2003 Tour Bootleg Style', 'L', 24.0), ('Vintage Band Tee — Faded Grey', 'L', 19.0), ('Vintage Graphic Hoodie — Faded Black', 'L', 26.0)]
 ```
 
 ```
-$ python -c "from tools import suggest_outfit; ..."
+$ python -c "from tools import suggest_outfit; from utils.data_loader import get_example_wardrobe, load_listings; print(suggest_outfit(load_listings()[0], get_example_wardrobe()))"
+Here are two ways to style these vintage Levi's 501s using only the items currently in your wardrobe:
 
+* **Casual Streetwear:** Pair the **Vintage Levi's 501 Jeans — Medium Wash** with the **White ribbed tank top** tucked in to define your waist. Layer the **Oversized grey crewneck sweatshirt** over top for an effortless, cozy contrast, and finish with the **Chunky white sneakers** and the **Black crossbody bag**.
+* **Edgy Vintage Layering:** Wear the **Vintage Levi's 501 Jeans — Medium Wash** with the **Brown leather belt** threaded through the loops. Add the **Black cropped zip hoodie**, layer the **Vintage black denim jacket** right over it for a cool double-jacket effect, and ground the look with the **Black combat boots** and the **Black crossbody bag**.
 ```
 
 ```
-$ python -c "from tools import create_fit_card; ..."
-
+$ python -c "from tools import create_fit_card; from utils.data_loader import load_listings; print(create_fit_card('jeans and white sneakers', load_listings()[0]))"
+Finally found a pair of Vintage Levi's 501 Jeans — Medium Wash that actually fit right. Grabbed these on depop for $38.00 and I'm obsessed with the knee fading. Just threw them on with crisp white sneakers for that effortlessly chill streetwear look.
 ```
 
 ---
