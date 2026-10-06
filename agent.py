@@ -108,7 +108,9 @@ def run_agent(query: str, wardrobe: dict) -> dict:
         than a stack trace. The import is already at the top of this file.
     """
     session = new_session(query, wardrobe)
+    trace.start_trace()
     session["parsed"] = parse_query(query)
+    trace.step("parse_query", inputs=query, returned=str(session["parsed"]))
 
     # Each pass runs one step and names the next one from what it got back.
     next_step = "search_listings"
@@ -127,20 +129,28 @@ def run_agent(query: str, wardrobe: dict) -> dict:
             if not session["search_results"]:
                 session["error"] = _no_results_message(session["parsed"])
                 next_step = "done"
+                note = "branch: empty, stopping"
             else:
                 session["selected_item"] = session["search_results"][0]
                 next_step = "suggest_outfit"
+                note = "branch: found, taking the first result"
+            trace.step("search_listings", inputs=str(session["parsed"]),
+                       returned=session["search_results"], note=note)
 
         elif next_step == "suggest_outfit":
             session["outfit_suggestion"] = suggest_outfit(
                 session["selected_item"], session["wardrobe"]
             )
+            trace.step("suggest_outfit", inputs=session["selected_item"],
+                       returned=session["outfit_suggestion"])
             next_step = "create_fit_card"
 
         elif next_step == "create_fit_card":
             session["fit_card"] = create_fit_card(
                 session["outfit_suggestion"], session["selected_item"]
             )
+            trace.step("create_fit_card", inputs=session["selected_item"],
+                       returned=session["fit_card"])
             next_step = "done"
 
     return session

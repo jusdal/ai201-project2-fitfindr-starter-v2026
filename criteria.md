@@ -78,8 +78,8 @@ Passing the item from search to `suggest_outfit` to `create_fit_card` is plain P
      sentence? A card longer than a caption anyone would post? Any of those can
      be turned into a number. -->
 
-Run the same matching query 5 times with caching off. A try passes if its fit card:
-- has 2–4 sentences, counted by `.`, `!` and `?`;
+Run `AI201_CACHE=0 python app.py ask 'vintage graphic tee under $30'` 5 times (caching off, so each try is a fresh model call). A try passes if its fit card:
+- has 2–4 sentences, counted by `.`, `!` and `?`, not counting the `.` inside a price like `$18.00`;
 - contains the item's price as `$24` or `$24.00`;
 - contains the item's platform name;
 - has a first sentence different from every earlier try's first sentence.
@@ -101,6 +101,8 @@ The words are allowed to change; what can't change is what my spec for `create_f
      or an observable outcome. -->
 
 **An empty wardrobe still gets real advice.** Given a matching query and `get_empty_wardrobe()`, the run finishes with `session["error"]` as None, and `outfit_suggestion` is model-written styling advice, not the fixed fallback sentence, in at least 4 of 5 tries.
+
+The fallback sentence is `suggest_outfit`'s fixed answer when the model returns nothing. It always reads "Try the {item title} with simple basics — straight jeans, a plain tee and clean sneakers — and let it be the focal point." A try whose `outfit_suggestion` is exactly that sentence fails.
 
 **Why this target:**
 An empty wardrobe is the input most likely to break `suggest_outfit`, for example by building the prompt from an empty list. My spec adds a fixed fallback sentence so this case never returns `""`, but that fallback would also hide a broken empty-wardrobe prompt, so a try that falls back counts as a fail. The target is 4 of 5, not 5 of 5, because like criterion 1 it depends on a model call that can occasionally come back empty.
