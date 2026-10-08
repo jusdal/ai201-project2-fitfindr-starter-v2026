@@ -14,14 +14,14 @@ Build and test your three tools in `tools.py` first. Then come here.
 """
 
 import re
-
+from mcp_client import call_tool
 import config
 import trace
-from tools import search_listings, suggest_outfit, create_fit_card
+from tools import suggest_outfit, create_fit_card
 from generate import ModelUnavailable
 
-
 # ── session state ─────────────────────────────────────────────────────────────
+
 
 def new_session(query: str, wardrobe: dict) -> dict:
     """
@@ -38,18 +38,19 @@ def new_session(query: str, wardrobe: dict) -> dict:
     Add fields if you need them.
     """
     return {
-        "query": query,              # what the user typed
-        "parsed": {},                # description / size / max_price you pulled out of it
-        "search_results": [],        # everything search_listings returned
-        "selected_item": None,       # the one you chose — goes into suggest_outfit
-        "wardrobe": wardrobe,        # the user's wardrobe
-        "outfit_suggestion": None,   # what suggest_outfit returned
-        "fit_card": None,            # what create_fit_card returned
-        "error": None,               # set when the run ended early
+        "query": query,  # what the user typed
+        "parsed": {},  # description / size / max_price you pulled out of it
+        "search_results": [],  # everything search_listings returned
+        "selected_item": None,  # the one you chose — goes into suggest_outfit
+        "wardrobe": wardrobe,  # the user's wardrobe
+        "outfit_suggestion": None,  # what suggest_outfit returned
+        "fit_card": None,  # what create_fit_card returned
+        "error": None,  # set when the run ended early
     }
 
 
 # ── planning loop ─────────────────────────────────────────────────────────────
+
 
 def run_agent(query: str, wardrobe: dict) -> dict:
     """
@@ -120,10 +121,13 @@ def run_agent(query: str, wardrobe: dict) -> dict:
         trace.check_iterations(count)
 
         if next_step == "search_listings":
-            session["search_results"] = search_listings(
-                session["parsed"]["description"],
-                session["parsed"]["size"],
-                session["parsed"]["max_price"],
+            session["search_results"] = call_tool(
+                "search_listings",
+                {
+                    "description": session["parsed"]["description"],
+                    "size": session["parsed"]["size"],
+                    "max_price": session["parsed"]["max_price"],
+                },
             )
             # The branch: nothing found means stop here, before any model call.
             if not session["search_results"]:
@@ -134,23 +138,33 @@ def run_agent(query: str, wardrobe: dict) -> dict:
                 session["selected_item"] = session["search_results"][0]
                 next_step = "suggest_outfit"
                 note = "branch: found, taking the first result"
-            trace.step("search_listings", inputs=str(session["parsed"]),
-                       returned=session["search_results"], note=note)
+            trace.step(
+                "search_listings (via MCP)",
+                inputs=str(session["parsed"]),
+                returned=session["search_results"],
+                note=note,
+            )
 
         elif next_step == "suggest_outfit":
             session["outfit_suggestion"] = suggest_outfit(
                 session["selected_item"], session["wardrobe"]
             )
-            trace.step("suggest_outfit", inputs=session["selected_item"],
-                       returned=session["outfit_suggestion"])
+            trace.step(
+                "suggest_outfit",
+                inputs=session["selected_item"],
+                returned=session["outfit_suggestion"],
+            )
             next_step = "create_fit_card"
 
         elif next_step == "create_fit_card":
             session["fit_card"] = create_fit_card(
                 session["outfit_suggestion"], session["selected_item"]
             )
-            trace.step("create_fit_card", inputs=session["selected_item"],
-                       returned=session["fit_card"])
+            trace.step(
+                "create_fit_card",
+                inputs=session["selected_item"],
+                returned=session["fit_card"],
+            )
             next_step = "done"
 
     return session
@@ -193,7 +207,7 @@ def parse_query(query: str) -> dict:
     price_match = _PRICE_RE.search(rest)
     if price_match:
         max_price = float(price_match.group(1) or price_match.group(2))
-        rest = rest[: price_match.start()] + " " + rest[price_match.end():]
+        rest = rest[: price_match.start()] + " " + rest[price_match.end() :]
 
     size = None
     size_match = _SIZE_RE.search(rest)
@@ -201,7 +215,7 @@ def parse_query(query: str) -> dict:
         size = re.sub(r"\s+", " ", size_match.group(1)).upper()
         if size == "ONE SIZE":
             size = "One Size"
-        rest = rest[: size_match.start()] + " " + rest[size_match.end():]
+        rest = rest[: size_match.start()] + " " + rest[size_match.end() :]
 
     rest = _FILLER_RE.sub(" ", rest)
     description = " ".join(re.sub(r"[^\w\s'-]", " ", rest).split())
@@ -224,14 +238,21 @@ def _no_results_message(parsed: dict) -> str:
         tips.append("drop the size or try a neighbouring one")
     if parsed["max_price"] is not None:
         tips.append("raise the max price")
-    tips.append("use broader keywords (e.g. 'jacket' instead of 'designer bomber jacket')")
+    tips.append(
+        "use broader keywords (e.g. 'jacket' instead of 'designer bomber jacket')"
+    )
     if len(tips) > 1:
         tips[-1] = "or " + tips[-1]
 
-    return f"No listings matched {searched}{where}. To find something, " + "; ".join(tips) + "."
+    return (
+        f"No listings matched {searched}{where}. To find something, "
+        + "; ".join(tips)
+        + "."
+    )
 
 
 # ── running it directly ───────────────────────────────────────────────────────
+
 
 def _show(session: dict) -> None:
     if session["error"]:
@@ -240,7 +261,9 @@ def _show(session: dict) -> None:
         return
 
     item = session["selected_item"] or {}
-    print(f"  found:    {item.get('title')} — ${item.get('price')} on {item.get('platform')}")
+    print(
+        f"  found:    {item.get('title')} — ${item.get('price')} on {item.get('platform')}"
+    )
     print(f"  outfit:   {session['outfit_suggestion']}")
     print(f"  fit card: {session['fit_card']}")
 
@@ -249,16 +272,20 @@ if __name__ == "__main__":
     from utils.data_loader import get_example_wardrobe
 
     print("=== A query the data can match ===")
-    _show(run_agent(
-        query="looking for a vintage graphic tee under $30",
-        wardrobe=get_example_wardrobe(),
-    ))
+    _show(
+        run_agent(
+            query="looking for a vintage graphic tee under $30",
+            wardrobe=get_example_wardrobe(),
+        )
+    )
 
     print("\n=== A query it can't ===")
-    _show(run_agent(
-        query="designer ballgown size XXS under $5",
-        wardrobe=get_example_wardrobe(),
-    ))
+    _show(
+        run_agent(
+            query="designer ballgown size XXS under $5",
+            wardrobe=get_example_wardrobe(),
+        )
+    )
 
     print(
         "\nThe second one should stop before the fit card. If both paths look "
