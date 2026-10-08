@@ -146,9 +146,13 @@ def run_agent(query: str, wardrobe: dict) -> dict:
             )
 
         elif next_step == "suggest_outfit":
-            session["outfit_suggestion"] = suggest_outfit(
-                session["selected_item"], session["wardrobe"]
-            )
+            try:
+                session["outfit_suggestion"] = suggest_outfit(
+                    session["selected_item"], session["wardrobe"]
+                )
+            except ModelUnavailable as exc:
+                next_step = _stop_on_model_error(session, "suggest_outfit", exc)
+                continue
             trace.step(
                 "suggest_outfit",
                 inputs=session["selected_item"],
@@ -157,9 +161,13 @@ def run_agent(query: str, wardrobe: dict) -> dict:
             next_step = "create_fit_card"
 
         elif next_step == "create_fit_card":
-            session["fit_card"] = create_fit_card(
-                session["outfit_suggestion"], session["selected_item"]
-            )
+            try:
+                session["fit_card"] = create_fit_card(
+                    session["outfit_suggestion"], session["selected_item"]
+                )
+            except ModelUnavailable as exc:
+                next_step = _stop_on_model_error(session, "create_fit_card", exc)
+                continue
             trace.step(
                 "create_fit_card",
                 inputs=session["selected_item"],
@@ -221,6 +229,20 @@ def parse_query(query: str) -> dict:
     description = " ".join(re.sub(r"[^\w\s'-]", " ", rest).split())
 
     return {"description": description, "size": size, "max_price": max_price}
+
+
+def _stop_on_model_error(session: dict, step: str, exc: ModelUnavailable) -> str:
+    """Record which model step failed, say what to do, and end the loop."""
+    item = session["selected_item"]
+    stage = "the outfit" if step == "suggest_outfit" else "the fit card"
+    session["error"] = (
+        f"Couldn't reach the model while writing {stage}, so FitFindr stopped "
+        f"there. {exc} Your search did find {item['title']} "
+        f"(${item['price']:g} on {item['platform']}); run the same query again "
+        f"once the model is reachable."
+    )
+    trace.step(step, inputs=item, note="model unavailable, stopping")
+    return "done"
 
 
 def _no_results_message(parsed: dict) -> str:

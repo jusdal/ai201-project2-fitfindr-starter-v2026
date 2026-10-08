@@ -266,13 +266,37 @@ that produced it:
 **Happy path**
 
 ```
-
+$ python app.py ask 'vintage graphic tee under $30' --trace
+[1] parse_query
+      in:  vintage graphic tee under $30
+      out: {'description': 'vintage graphic tee', 'size': None, 'max_price': 30.0}
+[2] search_listings (via MCP)
+      in:  {'description': 'vintage graphic tee', 'size': None, 'max_price': 30.0}
+      out: 10 items: Y2K Baby Tee — Butterfly Print, Graphic Tee — 2003 Tour Bootleg Style, Vintage Band Tee — Faded Grey … +7 more
+      →    branch: found, taking the first result
+[3] suggest_outfit
+      in:  Y2K Baby Tee — Butterfly Print ($18.0, depop)
+      out: Here are two ways to style the Y2K Baby Tee — Butterfly Print using only the items already in your wardrobe:  …
+[4] create_fit_card
+      in:  Y2K Baby Tee — Butterfly Print ($18.0, depop)
+      out: Found this adorable Y2K Baby Tee — Butterfly Print on depop for just $18.00 and I am so obsessed. I threw it o…
 ```
 
 **Empty search**
 
 ```
+$ python app.py ask 'ball gown size xxs under $5' --trace
+[1] parse_query
+      in:  ball gown size xxs under $5
+      out: {'description': 'ball gown', 'size': 'XXS', 'max_price': 5.0}
+[2] search_listings (via MCP)
+      in:  {'description': 'ball gown', 'size': 'XXS', 'max_price': 5.0}
+      out: [] (empty)
+      →    branch: empty, stopping
 
+  No listings matched 'ball gown' in size XXS and under $5. To find something, drop the size or try a neighbouring one; raise the max price; or use broader keywords (e.g. 'jacket' instead of 'designer bomber jacket').
+
+0 model calls this session
 ```
 
 **On the MCP move:** <!-- what changed in your code, and whether anything
