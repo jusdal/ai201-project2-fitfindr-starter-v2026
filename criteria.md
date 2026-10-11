@@ -89,6 +89,23 @@ Target: at least 4 of 5 tries pass.
 **Why this target:**
 The words are allowed to change; what can't change is what my spec for `create_fit_card` promises: 2–4 sentences that mention the price and platform. At `TEMPERATURE` 0.9 the model sometimes writes "24 bucks", drops the platform, or runs long, so I allow one miss in five, the same allowance as criterion 1 for one model call. The first-sentence check makes sure the variation is real: if tries keep opening the same way, the cache is on or the prompt is too rigid, and those tries fail.
 
+> **Revised in unit 4:** Same command, same 5 tries, same target (at least 4
+> of 5). A try passes if its fit card:
+> - has 2–4 sentences, counted by `.`, `!` and `?`, not counting the `.` inside a price like `$18.00`;
+> - contains the price of `session["selected_item"]`, as `$18` or `$18.00` for this query;
+> - contains the item's platform name;
+> - has a first sentence different from every earlier try's first sentence.
+>
+> **Why revised:** The original named `$24`, the price of the *second*
+> search result (Graphic Tee — 2003 Tour Bootleg Style). The loop always
+> takes the first result, Y2K Baby Tee — Butterfly Print ($18, depop), so no
+> card from this query could ever contain `$24`, whatever it said. The price
+> check could not measure what it was meant to: whether the card states the
+> price of the item it's about. Tying it to `selected_item` instead of a
+> fixed number keeps it correct if the data or search order change. The
+> target and the other three checks are unchanged. The mismatch was found
+> while writing `scenarios.py`, before the run.
+
 ---
 
 ## 5. Your choice

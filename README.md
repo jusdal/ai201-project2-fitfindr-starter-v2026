@@ -204,17 +204,123 @@ Finally found a pair of Vintage Levi's 501 Jeans — Medium Wash that actually f
 
 | Criterion | Target | Try 1 | Try 2 | Try 3 | Try 4 | Try 5 | Verdict |
 |---|---|---|---|---|---|---|---|
-| 1.  |  |  |  |  |  |  |  |
-| 2.  |  |  |  |  |  |  |  |
-| 3.  |  |  |  |  |  |  |  |
-| 4.  |  |  |  |  |  |  |  |
-| 5.  |  |  |  |  |  |  |  |
+| 1. matching query completes | ≥ 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 2. impossible query stops early | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 3. selected item reaches both model calls | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 4. fit card stays within spec | ≥ 4 of 5 | PASS* | PASS* | PASS* | PASS* | PASS* | MISSED (0/5) as written → MET (5/5) as revised* |
+| 5. empty wardrobe gets real advice | ≥ 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+
+\* Criterion 4 as first written requires `$24`, the price of the second
+search result. The loop takes the first (Y2K Baby Tee, $18, depop), so all
+five tries fail that check: 0/5. Under the unit 4 revision in `criteria.md`
+(the card must contain the selected item's price), all five pass: each card
+has `$18.00`, says depop, has 2–3 sentences, and opens with a sentence no
+earlier try used. Tries 1 and 2 share their opening words ("Found this
+adorable Y2K Baby Tee — Butterfly Print for just $18.00…") and differ only
+after that.
+
+Full log, all five tries of every scenario: `results/run_2026-10-08_0842_before.md`.
 
 **Real output from one try**, pasted as text, naming the file and function
 that produced it:
 
+All of it is from Try 1 of `python run_eval.py --label before` (caching off,
+temperature 0.9). `run_eval.py::run_once` calls `agent.py::run_agent` and
+records the session it returns and the trace. The trace text is printed by
+`trace.py::get_trace` from the `trace.step()` calls in `agent.py::run_agent`.
+
+#### Criterion 1 — matching query completes
+
+Query `vintage graphic tee under $30`, example wardrobe. Trace from
+`trace.py::get_trace`. All four steps ran:
+
+```
+[1] parse_query
+      in:  vintage graphic tee under $30
+      out: {'description': 'vintage graphic tee', 'size': None, 'max_price': 30.0}
+[2] search_listings (via MCP)
+      in:  {'description': 'vintage graphic tee', 'size': None, 'max_price': 30.0}
+      out: 10 items: Y2K Baby Tee — Butterfly Print, Graphic Tee — 2003 Tour Bootleg Style, Vintage Band Tee — Faded Grey … +7 more
+      →    branch: found, taking the first result
+[3] suggest_outfit
+      in:  Y2K Baby Tee — Butterfly Print ($18.0, depop)
+      out: Here are two ways to style the Y2K Baby Tee — Butterfly Print using only items from your wardrobe:  *   **Y2K …
+[4] create_fit_card
+      in:  Y2K Baby Tee — Butterfly Print ($18.0, depop)
+      out: Found the cutest little butterfly tee on Depop for just $18.00 and I’m obsessed with the early 2000s pink and …
 ```
 
+Fit card returned, from `tools.py::create_fit_card`:
+
+```
+Found the cutest little butterfly tee on Depop for just $18.00 and I’m obsessed with the early 2000s pink and purple print. I’ve been wearing it non-stop, either leaning into a total Y2K streetwear vibe with baggy denim and chunky sneakers, or toughening it up with combat boots and a black jacket for that sweet-meets-grunge look.
+```
+
+#### Criterion 2 — impossible query stops early
+
+Query `designer ballgown size XXS under $5`, example wardrobe. Trace from
+`trace.py::get_trace`. It stops after step 2, and `suggest_outfit` never runs:
+
+```
+[1] parse_query
+      in:  designer ballgown size XXS under $5
+      out: {'description': 'designer ballgown', 'size': 'XXS', 'max_price': 5.0}
+[2] search_listings (via MCP)
+      in:  {'description': 'designer ballgown', 'size': 'XXS', 'max_price': 5.0}
+      out: [] (empty)
+      →    branch: empty, stopping
+```
+
+`session["error"]`, written by `agent.py::_no_results_message`:
+
+```
+No listings matched 'designer ballgown' in size XXS and under $5. To find something, drop the size or try a neighbouring one; raise the max price; or use broader keywords (e.g. 'jacket' instead of 'designer bomber jacket').
+```
+
+#### Criterion 3 — selected item reaches both model calls
+
+Query `levi's 501 jeans under $40`, example wardrobe. `session["selected_item"]`
+was `Vintage Levi's 501 Jeans — Medium Wash ($38.0, depop)`. Trace from
+`trace.py::get_trace`. The `in:` lines of steps 3 and 4 show the same item:
+
+```
+[1] parse_query
+      in:  levi's 501 jeans under $40
+      out: {'description': "levi's 501 jeans", 'size': None, 'max_price': 40.0}
+[2] search_listings (via MCP)
+      in:  {'description': "levi's 501 jeans", 'size': None, 'max_price': 40.0}
+      out: 4 items: Vintage Levi's 501 Jeans — Medium Wash, Straight Leg Black Jeans — Faded, High-Waisted Denim Shorts — Cutoff … +1 more
+      →    branch: found, taking the first result
+[3] suggest_outfit
+      in:  Vintage Levi's 501 Jeans — Medium Wash ($38.0, depop)
+      out: These vintage Levi's 501s give you a classic, straight-leg silhouette that bridges the gap between your existi…
+[4] create_fit_card
+      in:  Vintage Levi's 501 Jeans — Medium Wash ($38.0, depop)
+      out: Finally scored these Vintage Levi's 501 Jeans and I'm obsessed with the knee fading. Got them listed on depop …
+```
+
+#### Criterion 4 — fit card stays within spec
+
+Query `vintage graphic tee under $30`, example wardrobe. Selected item: Y2K Baby
+Tee — Butterfly Print ($18.0, depop). Fit card from `tools.py::create_fit_card`.
+It has 3 sentences and contains `$18.00` and `depop`:
+
+```
+Found this adorable Y2K Baby Tee — Butterfly Print for just $18.00 on depop and I'm obsessed. I styled it with baggy dark wash jeans and chunky white sneakers for that ultimate early 2000s streetwear look. Such a steal!
+```
+
+#### Criterion 5 — empty wardrobe gets real advice
+
+Query `denim jacket under $50`, wardrobe from `get_empty_wardrobe()`. Selected
+item: Denim Jacket — Light Wash, Cropped ($42.0, poshmark). `session["error"]` is
+None. The `outfit_suggestion` from `tools.py::suggest_outfit` is written by the
+model, not the fixed "simple basics… focal point" fallback:
+
+```
+Here are two easy, practical ways to style this vintage Wrangler jacket using common wardrobe staples:
+
+* **The Casual Contrast:** Layer the cropped jacket over a basic black or white ribbed tank top, paired with high-waisted wide-leg black trousers to balance the light wash. Finish the look with classic white leather low-top sneakers and a simple leather belt.
+* **Double Denim (Different Tones):** Wear the jacket over a fitted gray crewneck t-shirt and dark wash straight-leg jeans—mixing light and dark denim keeps the outfit grounded. Add black canvas slip-on sneakers or ankle boots to complete the look.
 ```
 
 ---
