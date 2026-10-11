@@ -219,7 +219,7 @@ Finally found a pair of Vintage Levi's 501 Jeans — Medium Wash that actually f
 | 1. matching query completes | ≥ 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
 | 2. impossible query stops early | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
 | 3. selected item reaches both model calls | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
-| 4. fit card stays within spec | ≥ 4 of 5 | PASS* | PASS* | PASS* | PASS* | PASS* | MISSED (0/5) as written → MET (5/5) as revised* |
+| 4. fit card stays within spec | ≥ 4 of 5 | FAIL* | FAIL* | FAIL* | FAIL* | FAIL* | MISSED (0/5)* |
 | 5. empty wardrobe gets real advice | ≥ 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
 
 \* Criterion 4 as first written requires `$24`, the price of the second
@@ -537,7 +537,7 @@ was never committed.
 | 1. matching query completes | ≥ 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
 | 2. impossible query stops early | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
 | 3. selected item reaches both model calls | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
-| 4. fit card stays within spec | ≥ 4 of 5 | PASS* | PASS* | PASS* | PASS* | PASS* | MISSED (0/5) as written → MET (5/5) as revised* |
+| 4. fit card stays within spec | ≥ 4 of 5 | FAIL* | FAIL* | FAIL* | FAIL* | FAIL* | MISSED (0/5)* |
 | 5. empty wardrobe gets real advice | ≥ 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
 
 ### Run Log — After
@@ -550,7 +550,7 @@ Same five scenarios, five tries each, caching off, temperature 0.9.
 | 1. matching query completes | ≥ 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
 | 2. impossible query stops early | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
 | 3. selected item reaches both model calls | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
-| 4. fit card stays within spec | ≥ 4 of 5 | PASS* | PASS* | PASS* | PASS* | PASS* | MET (5/5) as revised; 0/5 as written* |
+| 4. fit card stays within spec | ≥ 4 of 5 | PASS* | PASS* | PASS* | PASS* | PASS* | MET (5/5)* |
 | 5. empty wardrobe gets real advice | ≥ 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
 
 \* Scored against the unit 4 revision (the card must contain the selected
