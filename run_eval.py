@@ -30,6 +30,7 @@ mode — caching is what usually explains it.
 
 import argparse
 import datetime as dt
+import os
 import sys
 import traceback
 
@@ -86,6 +87,8 @@ def main():
 
     # Caching off. Five tries have to be five real answers.
     config.CACHE_ENABLED = False
+    # The MCP server is a separate process and reads this, not config.
+    os.environ["AI201_CACHE"] = "0"
     print("Cache is OFF for this run — that's deliberate.\n")
 
     rows = []
