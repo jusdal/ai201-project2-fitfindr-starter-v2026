@@ -104,7 +104,10 @@ The words are allowed to change; what can't change is what my spec for `create_f
 > price of the item it's about. Tying it to `selected_item` instead of a
 > fixed number keeps it correct if the data or search order change. The
 > target and the other three checks are unchanged. The mismatch was found
-> while writing `scenarios.py`, before the run.
+> while writing `scenarios.py`, before the run. The run log
+> (`results/run_2026-10-08_0842_before.md`) already uses that file's scenario
+> names, and its criterion 4 comment says to look for $18. The scenarios, the
+> run log and this revision were committed together afterwards, in one commit.
 
 ---
 
