@@ -81,6 +81,7 @@ FitFindr helps someone shop secondhand clothes by describing what they want in p
 - **Inputs:** `outfit` (str), `new_item` (dict, a listing dict)
 - **Returns:** A caption string that mentions the item's `title`, `price` and `platform` once each.
 - **When it has nothing:** If `outfit` is empty or only whitespace, it returns the error string `"Can't write a fit card without an outfit suggestion."` and does not call the model.
+- **Unit 4 stretch:** now served over MCP from `mcp_server.py`. The inputs, return value and empty case are the same.
 
 ---
 
@@ -99,6 +100,9 @@ FitFindr helps someone shop secondhand clothes by describing what they want in p
 
 **Branch rule:** If `search_listings` returns an empty list, put a message in `session["error"]` that tells the user what to change (drop or change the size, raise the max price, or use broader keywords), and return the session without calling `suggest_outfit` or `create_fit_card`. Otherwise, put the first result in `session["selected_item"]` and go to `suggest_outfit`.
 
+> **Unit 4 stretch:** an empty search that named a size now gets one retry
+> over MCP with `size=None` before the run stops. See Stretch Features.
+
 **Where it lives:** `agent.py::run_agent`
 
 **How the query is parsed:** With regex, in `agent.py::parse_query`, with no model call. It pulls out three things and removes each one from the query once it's found:
@@ -112,7 +116,7 @@ A part the query doesn't mention comes back as `None`. For example, `"vintage gr
 1. `query`, and `wardrobe` from the caller, are set by `new_session()`.
 2. `parsed` holds `parse_query(query)`.
 3. `search_results` holds `search_listings(parsed["description"], parsed["size"], parsed["max_price"])`.
-4. If `search_results` is empty, `error` is set and the run stops, leaving `selected_item`, `outfit_suggestion` and `fit_card` as `None`. Otherwise `selected_item` is set to `search_results[0]`.
+4. If `search_results` is empty, `error` is set and the run stops, leaving `selected_item`, `outfit_suggestion` and `fit_card` as `None`. Otherwise `selected_item` is set to `search_results[0]`. (Unit 4 stretch: if the empty search had a size, it first retries once without it. `dropped_size` records the size it dropped, and `notice` tells the user.)
 5. `outfit_suggestion` holds `suggest_outfit(selected_item, wardrobe)`.
 6. `fit_card` holds `create_fit_card(outfit_suggestion, selected_item)`.
 
@@ -616,6 +620,130 @@ of its inputs and its empty-outfit case, and `run_agent` calls it through
 How I'll check both: a third eval run (`python run_eval.py --label stretch`),
 plus pasted traces for a retry that finds something and one that doesn't.
 
+
+### What was built
+
+**Retry.** In `agent.py::run_agent`, an empty first search with a size goes
+to a new `retry_without_size` step. That step calls `search_listings` over MCP
+again with the same description and max price and `size=None`, and records
+the dropped size in `session["dropped_size"]`. If the retry finds something,
+the first result is selected and `session["notice"]` tells the user the size
+was dropped (`app.py` prints it as `Note:`). If the retry is also empty, the
+run stops before `suggest_outfit`. The message no longer suggests dropping
+the size, because that's already been tried. A query with no size skips the
+retry.
+
+A retry that finds something:
+
+```
+$ python app.py ask "levi's 501 jeans size XXS under $40" --trace
+[1] parse_query
+      in:  levi's 501 jeans size XXS under $40
+      out: {'description': "levi's 501 jeans", 'size': 'XXS', 'max_price': 40.0}
+[2] search_listings (via MCP)
+      in:  {'description': "levi's 501 jeans", 'size': 'XXS', 'max_price': 40.0}
+      out: [] (empty)
+      →    branch: empty, retrying once without the size
+[3] search_listings (via MCP, retry: dropped size XXS)
+      in:  {'description': "levi's 501 jeans", 'size': None, 'max_price': 40.0}
+      out: 4 items: Vintage Levi's 501 Jeans — Medium Wash, Straight Leg Black Jeans — Faded, High-Waisted Denim Shorts — Cutoff … +1 more
+      →    branch: found without the size, taking the first result
+[4] suggest_outfit
+      in:  Vintage Levi's 501 Jeans — Medium Wash ($38.0, depop)
+      out: Here are two ways to style these vintage Levi's 501s using only the items currently in your wardrobe:  * **Cas…
+[5] create_fit_card (via MCP)
+      in:  Vintage Levi's 501 Jeans — Medium Wash ($38.0, depop)
+      out: Found the holy grail of denim with these Vintage Levi's 501 Jeans — Medium Wash for just $38.00 on depop. I've…
+
+  Found:    Vintage Levi's 501 Jeans — Medium Wash — $38.0 on depop
+  Note:     Nothing matched in size XXS, so FitFindr searched again without the size. Check the listing's size before you buy.
+```
+
+A retry that's also empty (criterion 2's query, the same in all five tries of
+the run log below):
+
+```
+$ python app.py ask 'designer ballgown size XXS under $5' --trace
+[1] parse_query
+      in:  designer ballgown size XXS under $5
+      out: {'description': 'designer ballgown', 'size': 'XXS', 'max_price': 5.0}
+[2] search_listings (via MCP)
+      in:  {'description': 'designer ballgown', 'size': 'XXS', 'max_price': 5.0}
+      out: [] (empty)
+      →    branch: empty, retrying once without the size
+[3] search_listings (via MCP, retry: dropped size XXS)
+      in:  {'description': 'designer ballgown', 'size': None, 'max_price': 5.0}
+      out: [] (empty)
+      →    branch: still empty, stopping
+
+  No listings matched 'designer ballgown' in size XXS and under $5, or in any size under $5. To find something, raise the max price; or use broader keywords (e.g. 'jacket' instead of 'designer bomber jacket').
+```
+
+**`create_fit_card` on MCP.** It's registered in `mcp_server.py` as a second
+`@mcp.tool()`, and `run_agent` calls `call_tool("create_fit_card", {"outfit":
+..., "new_item": ...})`. The happy-path trace above shows step 5 as
+`create_fit_card (via MCP)`. Moving it took three fixes outside the loop:
+
+- **`mcp_client.py`:** the server was started with only a few environment
+  variables, so `AI201_CACHE=0` never reached it. It now gets this process's
+  environment.
+- **`run_eval.py`:** it turned caching off with `config.CACHE_ENABLED = False`,
+  which only affects its own process. It now also sets `AI201_CACHE=0`, so the
+  server's fit cards aren't served from the cache. Without this, criterion 4's
+  first-sentence check would have failed.
+- **`mcp_client.py`:** a tool error, like a bad API key inside
+  `create_fit_card`, came back wrapped in nested `ExceptionGroup`s. The real
+  reason was lost and the error read "unhandled errors in a TaskGroup". The
+  client now unwraps it. With `GEMINI_API_KEY=bad` the run stops at the fit
+  card with `session["error"]` starting "Couldn't write the fit card… The
+  model rejected your API key." It doesn't crash.
+
+### Run Log — Stretch
+
+`python run_eval.py --label stretch` → `results/run_2026-10-11_1457_stretch.md`.
+Same five scenarios, five tries each, caching off, temperature 0.9.
+
+| Criterion | Target | Try 1 | Try 2 | Try 3 | Try 4 | Try 5 | Verdict |
+|---|---|---|---|---|---|---|---|
+| 1. matching query completes | ≥ 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 2. impossible query stops early | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 3. selected item reaches both model calls | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 4. fit card stays within spec | ≥ 4 of 5 | PASS* | PASS* | PASS* | PASS* | PASS* | MET (5/5)* |
+| 5. empty wardrobe gets real advice | ≥ 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+
+\* Scored against the unit 4 revision (the selected item's price, $18).
+
+How each row was scored:
+
+1. All five: `stopped early: no` and a fit card.
+2. All five: step 2 is empty, step 3 is the retry with `dropped size XXS`,
+   then `branch: still empty, stopping`. There's no `suggest_outfit` step,
+   and the message names the price and keywords to change. The run now stops
+   at step 3 instead of step 2, but the criterion asks for a stop before
+   `suggest_outfit`, and that still holds.
+3. All five: steps 3 and 4 read `Vintage Levi's 501 Jeans — Medium Wash
+   ($38.0, depop)`, matching `selected_item`.
+4. All five cards have 2–3 sentences, `$18.00` and depop, and five different
+   first sentences. Two open with "Scored" and two with "Obsessed".
+5. All five finish without an error, and "simple basics" appears 0 times.
+
+**What changed, and what it cost.**
+- **Pass counts:** unchanged, 5/5 on every criterion.
+- **Model calls:** the run printed "21 model calls this session". That count
+  misses the 20 fit-card calls, which now happen in the server's process. The
+  trace footer in `app.py` undercounts the same way.
+- **Criterion 3:** it's weaker for step 4 than after the improvement. The
+  server's `last_received` lives in another process, so step 4's `in:` line
+  is the `new_item` the agent put into the MCP request, not what the tool
+  received on the other side. A wrong item sent by the loop still shows up,
+  which was the planted-bug case. A change to the item during the JSON
+  round trip wouldn't.
+- **Rate limiter:** it runs per process, so the server's calls don't count
+  toward the 15-per-minute limit. In this run the service pushed back
+  once, on a `suggest_outfit` call in criterion 3's scenario. The retry
+  waited 45 s and the try passed. That's likely the server's calls
+  pushing the real rate over the limit.
+
 ---
 
 ## What's Still Broken
@@ -639,8 +767,10 @@ weak that no criterion catches yet.
   at a file that doesn't exist and ran the graphic tee query. `run_agent`
   raised `MCPError: Couldn't call 'search_listings' over MCP: unhandled
   errors in a TaskGroup` after step 1. It didn't return a session with
-  `error` set. Model failures are handled (`_stop_on_model_error`), but the
-  search step isn't. *What I'd do:* catch `MCPError` around `call_tool` in
+  `error` set. Model failures are handled (`_stop_on_model_error`). Since
+  the stretch work, an MCP failure on the fit card step is handled too.
+  The two search calls (the first search and the retry) still aren't.
+  *What I'd do:* catch `MCPError` around both search calls in
   `agent.py::run_agent`, put a message in `session["error"]` that says the
   search service couldn't be reached, and add a sixth criterion: with the
   server unreachable, the run returns a session with `error` set in 5 of 5
