@@ -184,6 +184,18 @@ Finally found a pair of Vintage Levi's 501 Jeans — Medium Wash that actually f
 - *What came back:* The search step copied `session["parsed"]` into a local `parsed` variable and passed that to `search_listings`, so the call line didn't show that its inputs came from the session.
 - *What I changed:* I removed the local copy, so the call reads `session["parsed"]["description"]`, `["size"]` and `["max_price"]` directly. A run with `suggest_outfit` wrapped to record its input then confirmed it received the same object as `session["selected_item"]` (`lst_002`, Y2K Baby Tee — Butterfly Print).
 
+**Moment 3 (unit 4)**
+
+- *What I asked for:* I asked Claude to turn my five criteria into eval scenarios in `scenarios.py`.
+- *What came back:* While writing criterion 4's scenario, it pointed out that the check asked for `$24`, but the query's first result, the one the loop picks, costs $18. So the check could never pass.
+- *What I changed:* I didn't edit the original line. I added a revision under it in `criteria.md` that ties the price to `session["selected_item"]`, and I still scored the before run as MISSED (0/5) against the line as written.
+
+**Moment 4 (unit 4)**
+
+- *What I asked for:* After a before run where the agent itself missed nothing, I asked Claude what single improvement the diagnosis pointed to.
+- *What came back:* Criterion 3's trace passed `session["selected_item"]` as the `in:` line, so it compared the selection against itself and couldn't fail. The proposed change was to have each tool record the item it received (`tools.py::last_received`) and trace that.
+- *What I changed:* Before the real after run, I planted a bug with the model stubbed out, handing `create_fit_card` the second search result. Step 4's `in:` line then showed the wrong item. That confirmed the criterion can fail now. I didn't commit the planted bug. When I wrote up the MCP move, I also had Claude point the client at a missing server. That's how I found that `MCPError` escapes `run_agent`, which is now listed under What's Still Broken rather than claimed as handled.
+
 <!-- ═══════════════════════ UNIT 4 — THE TEST ═══════════════════════
 
      Don't fill these in during unit 3.
@@ -456,7 +468,16 @@ $ python app.py ask 'ball gown size xxs under $5' --trace
 behaved differently afterwards. If the rewire didn't work, say exactly where it
 broke — the error text and the last thing that worked. That earns the point in
 full. -->
-
+`run_agent` no longer imports `search_listings` from `tools.py`. It calls
+`mcp_client.call_tool("search_listings", {...})`, which starts
+`mcp_server.py`, where the tool is registered with a description of its
+inputs and its empty-list case. The results didn't change: on four queries
+(graphic tee, ballgown, Levi's, denim jacket) the MCP call returned the same
+list as the direct call (10, 0, 4 and 7 items, with `price` still a float).
+Two things did change. Each search now takes about 0.3–0.65 s instead of
+under 1 ms, because every call starts and stops the server. And there's a new
+way for a run to fail: if the server can't start, `call_tool` raises
+`MCPError` and `run_agent` doesn't catch it (see What's Still Broken).
 
 
 ---
@@ -578,6 +599,59 @@ effect.
 <!-- For each criterion still missed: what you'd do, and why you stopped where
      you did. "I ran out of time" is fine if it's true. Pretending nothing is
      left is not. -->
+
+**Criterion 4, as first written, is still missed: 0/5 before and after.** It
+requires `$24`, the price of the second search result, and the loop takes
+the first one ($18). *What I'd do:* nothing more to the agent. Making it pick
+the $24 tee would break the branch rule just to pass the check. The fix is
+the revision in `criteria.md`, and the agent passes that 5/5. *Why I stopped
+there:* the original line stays in place and stays scored as missed, because
+that's the only honest way to fix a criterion that was wrong.
+
+Every other criterion is met, so the rest of this list is things I know are
+weak that no criterion catches yet.
+
+- **An MCP server failure crashes the run.** I pointed `mcp_client.SERVER`
+  at a file that doesn't exist and ran the graphic tee query. `run_agent`
+  raised `MCPError: Couldn't call 'search_listings' over MCP: unhandled
+  errors in a TaskGroup` after step 1. It didn't return a session with
+  `error` set. Model failures are handled (`_stop_on_model_error`), but the
+  search step isn't. *What I'd do:* catch `MCPError` around `call_tool` in
+  `agent.py::run_agent`, put a message in `session["error"]` that says the
+  search service couldn't be reached, and add a sixth criterion: with the
+  server unreachable, the run returns a session with `error` set in 5 of 5
+  tries. *Why I stopped:* the unit allowed one improvement, and I spent it on
+  criterion 3. I only found this gap while writing up the MCP move above.
+- **A size without the word "size" is silently ignored.** `parse_query('vintage
+  graphic tee in a medium under $30')` gives `size: None` and the description
+  `'vintage graphic tee medium'`. So the search doesn't filter by size, and
+  2 of its top 3 results are size L. The user gets an item that won't fit and
+  no warning. *What I'd do:* map `small`/`medium`/`large` (and `in a M`) to
+  sizes in `_SIZE_RE`, and add a criterion that checks the size of
+  `selected_item` against the size asked for. *Why I stopped:* I documented
+  this limit in the Planning Loop section back in unit 3. None of my five
+  criteria tests size, so the eval never surfaced it.
+- **Criterion 4's first-sentence check is still too loose.** It compares
+  whole sentences, so two cards that share their first eleven words still
+  count as different. *What I'd do:* require the first five words to differ.
+  *Why I stopped:* it wouldn't change either verdict (before would still be
+  4/5 as revised), and revising the same criterion a second time after
+  seeing results would look like tuning the check to the output.
+- **Criterion 3 checks what each tool was given, not what it sent to the
+  model.** `last_received` records the item when the function starts, so a
+  bug in `_describe_item` that put the wrong title in the prompt would still
+  pass. *What I'd do:* record the prompt text too and check that the
+  item's title appears in it. *Why I stopped:* the planted-bug check showed
+  that the change catches the failure the criterion names (a wrong item
+  passed between steps), and that was the scope of the improvement.
+- **The model-failure allowance in criteria 1 and 5 has never been used.**
+  Across the 20 tries of those two criteria (before and after), no model
+  call failed or came back empty. That doesn't show the failure rate is low,
+  only that I haven't seen a failure yet.
+  *What I'd do:* run more tries before raising either target to 5 of 5.
+  *Why I stopped:* a full eval run makes about 40 model calls (four
+  scenarios, five tries, two calls each), and two runs with zero failures
+  isn't enough evidence to change a target.
 
 
 
