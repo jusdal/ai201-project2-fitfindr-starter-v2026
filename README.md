@@ -594,6 +594,30 @@ effect.
 
 ---
 
+## Stretch Features
+
+Declared here, and committed, before either one was built.
+
+**1. Retry with looser constraints (+1).** If `search_listings` returns `[]`
+and the query named a size, `agent.py::run_agent` searches once more over
+MCP with the same description and max price but `size=None`. The trace shows
+this as its own step that names the size it dropped. If the retry finds
+something, the loop takes the first result as usual and tells the user the
+size was dropped. If the retry is also empty, the run stops with the same
+kind of message as before, before `suggest_outfit`. A query with no size gets
+no retry. There's only one retry, and price is never loosened.
+
+**2. A second tool moved onto MCP (+1): `create_fit_card`.** It gets
+registered in `mcp_server.py` next to `search_listings`, with a description
+of its inputs and its empty-outfit case, and `run_agent` calls it through
+`mcp_client.call_tool` instead of importing it. The trace step will read
+`create_fit_card (via MCP)`.
+
+How I'll check both: a third eval run (`python run_eval.py --label stretch`),
+plus pasted traces for a retry that finds something and one that doesn't.
+
+---
+
 ## What's Still Broken
 
 <!-- For each criterion still missed: what you'd do, and why you stopped where
