@@ -468,26 +468,108 @@ full. -->
 
      `python run_eval.py --label after` -->
 
-**What I changed:**
+**What I changed:** `suggest_outfit` and `create_fit_card` now record a copy of
+the item they were handed, as the first line of each function
+(`tools.py:237` and `tools.py:338`), and `tools.py::last_received` returns it.
+`agent.py::run_agent` passes `last_received("suggest_outfit")` and
+`last_received("create_fit_card")` to `trace.step(inputs=...)` (lines 158 and
+173) where it used to pass `session["selected_item"]`. So the `in:` line of
+steps 3 and 4 is now the item the tool received, and `selected_item` in the
+run log is now the thing it gets compared against. One file per side, nothing
+else touched: no prompt, no branch, no return shape.
 
-**Which failure it was meant to fix:**
+**Which failure it was meant to fix:** Not a miss. The only miss in the before
+run, criterion 4, was a broken check, and its fix is the measurement revision
+already in `criteria.md`. No agent change could have made a card say `$24`
+for an $18 item. What the diagnosis named as the thing to tighten first was
+criterion 3. Its `in:` lines printed `selected_item` back to itself, so a
+loop that handed a model call a stale or different item would still have
+passed 5/5. The failure being fixed is that criterion 3 couldn't fail.
 
-### Run Log — After
+**Checking that it can fail now.** Before the real run I planted the bug the
+criterion is about. With the model stubbed out (no API calls), I patched the
+loop so `create_fit_card` received the second search result instead of
+`selected_item`:
+
+```
+selected_item: Vintage Levi's 501 Jeans — Medium Wash
+[3] suggest_outfit
+      in:  Vintage Levi's 501 Jeans — Medium Wash ($38.0, depop)
+      out: stub text
+[4] create_fit_card
+      in:  Straight Leg Black Jeans — Faded ($30.0, thredUp)
+      out: stub text
+```
+
+Step 4's `in:` line no longer matches `selected_item`, so that try fails
+criterion 3. With the old trace code, step 4 would have printed
+`session["selected_item"]` (the Levi's) and passed, even though the tool
+wrote a caption about the black jeans. That patch was a one-off check and
+was never committed.
+
+### Run Log — Before
+
+`results/run_2026-10-08_0842_before.md`
 
 | Criterion | Target | Try 1 | Try 2 | Try 3 | Try 4 | Try 5 | Verdict |
 |---|---|---|---|---|---|---|---|
-| 1.  |  |  |  |  |  |  |  |
-| 2.  |  |  |  |  |  |  |  |
-| 3.  |  |  |  |  |  |  |  |
-| 4.  |  |  |  |  |  |  |  |
-| 5.  |  |  |  |  |  |  |  |
+| 1. matching query completes | ≥ 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 2. impossible query stops early | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 3. selected item reaches both model calls | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 4. fit card stays within spec | ≥ 4 of 5 | PASS* | PASS* | PASS* | PASS* | PASS* | MISSED (0/5) as written → MET (5/5) as revised* |
+| 5. empty wardrobe gets real advice | ≥ 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
 
-**Did it help, and how do I know:**
+### Run Log — After
 
-<!-- If it made things worse, say that. Honestly reported, that earns full
-     credit and is more interesting than one that worked. -->
+`python run_eval.py --label after` → `results/run_2026-10-11_1442_after.md`.
+Same five scenarios, five tries each, caching off, temperature 0.9.
 
+| Criterion | Target | Try 1 | Try 2 | Try 3 | Try 4 | Try 5 | Verdict |
+|---|---|---|---|---|---|---|---|
+| 1. matching query completes | ≥ 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 2. impossible query stops early | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 3. selected item reaches both model calls | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 4. fit card stays within spec | ≥ 4 of 5 | PASS* | PASS* | PASS* | PASS* | PASS* | MET (5/5) as revised; 0/5 as written* |
+| 5. empty wardrobe gets real advice | ≥ 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
 
+\* Scored against the unit 4 revision (the card must contain the selected
+item's price, $18), as the before diagnosis said the after run would be. All
+five cards have `$18.00`, say depop, have 2–3 sentences, and open with a
+sentence no earlier try used. Against the original `$24` line it's still 0/5,
+for the same reason as before: the selected item costs $18.
+
+How each row was scored:
+
+1. All five: `stopped early: no`, four trace steps, a fit card.
+2. All five: `branch: empty, stopping` at step 2, no `suggest_outfit` step,
+   and the message naming size, price and keywords.
+3. All five: steps 3 and 4 both read `Vintage Levi's 501 Jeans — Medium Wash
+   ($38.0, depop)`, matching `selected_item`. These lines now come from
+   `tools.py::last_received`, not from the session.
+4. See the note above.
+5. All five finish without an error. "simple basics" (the fallback) appears 0
+   times in the log.
+
+**Did it help, and how do I know:** The pass counts didn't move. Before and
+after are both 5/5 on criteria 1, 2, 3 and 5, and 5/5 on criterion 4 as
+revised. So the change didn't make the agent pass anything it was failing,
+and it wasn't meant to. What changed is what criterion 3's 5/5 is worth.
+Before, it was guaranteed by how the trace was written, and the five runs
+added nothing past reading the code once. After, the `in:` line comes from
+the tool, and the planted-bug check above shows a wrong item now produces a
+failing try. Criterion 3's after-run 5/5 is evidence the loop passes the
+right item. The before-run 5/5 wasn't.
+
+The limits. `last_received` stores the item when the function is entered, so
+it shows what the tool was *given*, not what went into the prompt. A bug
+inside `_describe_item` would still slip through. It also holds only the
+latest call, so if two runs overlapped in one process, one could overwrite
+the other's record. The loop is sequential, so that can't happen today.
+
+Unchanged, for comparison with the before diagnosis: 2 of the 5 cards open
+with "Found" (4 of 5 before), and 2 with "Obsessed". This change doesn't
+touch the caption prompt, so I read that as run-to-run variation, not an
+effect.
 
 ---
 

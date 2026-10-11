@@ -17,7 +17,7 @@ import re
 from mcp_client import call_tool
 import config
 import trace
-from tools import suggest_outfit, create_fit_card
+from tools import suggest_outfit, create_fit_card, last_received
 from generate import ModelUnavailable
 
 # ── session state ─────────────────────────────────────────────────────────────
@@ -155,7 +155,7 @@ def run_agent(query: str, wardrobe: dict) -> dict:
                 continue
             trace.step(
                 "suggest_outfit",
-                inputs=session["selected_item"],
+                inputs=last_received("suggest_outfit"),
                 returned=session["outfit_suggestion"],
             )
             next_step = "create_fit_card"
@@ -170,7 +170,7 @@ def run_agent(query: str, wardrobe: dict) -> dict:
                 continue
             trace.step(
                 "create_fit_card",
-                inputs=session["selected_item"],
+                inputs=last_received("create_fit_card"),
                 returned=session["fit_card"],
             )
             next_step = "done"

@@ -25,6 +25,16 @@ import re
 from generate import generate
 from utils.data_loader import load_listings
 
+# The item each model-calling tool was last handed, copied on entry. The loop's
+# trace reads this rather than session["selected_item"], so the trace shows
+# what the tool actually received and a stale or wrong item shows up there.
+_received: dict[str, dict] = {}
+
+
+def last_received(tool_name: str) -> dict | None:
+    """Return a copy of the item `tool_name` was last called with, or None."""
+    return _received.get(tool_name)
+
 # ── Tool 1: search_listings ───────────────────────────────────────────────────
 
 _STOPWORDS = {
@@ -224,6 +234,7 @@ def suggest_outfit(new_item: dict, wardrobe: dict) -> str:
     Test it from a terminal before you move on:
         python -c "from tools import suggest_outfit; from utils.data_loader import get_example_wardrobe, load_listings; print(suggest_outfit(load_listings()[0], get_example_wardrobe()))"
     """
+    _received["suggest_outfit"] = dict(new_item or {})
     item_text = _describe_item(new_item)
     items = (wardrobe or {}).get("items") or []
 
@@ -324,6 +335,7 @@ def create_fit_card(outfit: str, new_item: dict) -> str:
     Test it from a terminal before you move on:
         python -c "from tools import create_fit_card; from utils.data_loader import load_listings; print(create_fit_card('jeans and white sneakers', load_listings()[0]))"
     """
+    _received["create_fit_card"] = dict(new_item or {})
     if not outfit or not outfit.strip():
         return "Can't write a fit card without an outfit suggestion."
 
