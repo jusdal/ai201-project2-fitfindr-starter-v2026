@@ -14,10 +14,10 @@ Build and test your three tools in `tools.py` first. Then come here.
 """
 
 import re
-from mcp_client import call_tool
+from mcp_client import call_tool, MCPError
 import config
 import trace
-from tools import suggest_outfit, create_fit_card, last_received
+from tools import suggest_outfit, last_received
 from generate import ModelUnavailable
 
 # ── session state ─────────────────────────────────────────────────────────────
@@ -46,6 +46,8 @@ def new_session(query: str, wardrobe: dict) -> dict:
         "outfit_suggestion": None,  # what suggest_outfit returned
         "fit_card": None,  # what create_fit_card returned
         "error": None,  # set when the run ended early
+        "dropped_size": None,  # the size a retry searched without, if one ran
+        "notice": None,  # tells the user a retry dropped their size
     }
 
 
@@ -129,18 +131,50 @@ def run_agent(query: str, wardrobe: dict) -> dict:
                     "max_price": session["parsed"]["max_price"],
                 },
             )
-            # The branch: nothing found means stop here, before any model call.
-            if not session["search_results"]:
-                session["error"] = _no_results_message(session["parsed"])
-                next_step = "done"
-                note = "branch: empty, stopping"
-            else:
+            # The branch: nothing found means retry once without the size if
+            # one was given, and otherwise stop here, before any model call.
+            if session["search_results"]:
                 session["selected_item"] = session["search_results"][0]
                 next_step = "suggest_outfit"
                 note = "branch: found, taking the first result"
+            elif session["parsed"]["size"] is not None:
+                next_step = "retry_without_size"
+                note = "branch: empty, retrying once without the size"
+            else:
+                session["error"] = _no_results_message(session["parsed"])
+                next_step = "done"
+                note = "branch: empty, stopping"
             trace.step(
                 "search_listings (via MCP)",
                 inputs=str(session["parsed"]),
+                returned=session["search_results"],
+                note=note,
+            )
+
+        elif next_step == "retry_without_size":
+            session["dropped_size"] = session["parsed"]["size"]
+            retry_inputs = {
+                "description": session["parsed"]["description"],
+                "size": None,
+                "max_price": session["parsed"]["max_price"],
+            }
+            session["search_results"] = call_tool("search_listings", retry_inputs)
+            if session["search_results"]:
+                session["selected_item"] = session["search_results"][0]
+                session["notice"] = (
+                    f"Nothing matched in size {session['dropped_size']}, so "
+                    f"FitFindr searched again without the size. Check the "
+                    f"listing's size before you buy."
+                )
+                next_step = "suggest_outfit"
+                note = "branch: found without the size, taking the first result"
+            else:
+                session["error"] = _no_results_message(session["parsed"], retried=True)
+                next_step = "done"
+                note = "branch: still empty, stopping"
+            trace.step(
+                f"search_listings (via MCP, retry: dropped size {session['dropped_size']})",
+                inputs=str(retry_inputs),
                 returned=session["search_results"],
                 note=note,
             )
@@ -161,16 +195,20 @@ def run_agent(query: str, wardrobe: dict) -> dict:
             next_step = "create_fit_card"
 
         elif next_step == "create_fit_card":
+            # The tool runs in the MCP server's process, so last_received()
+            # can't see it. The trace shows the item this request sent.
+            fit_card_inputs = {
+                "outfit": session["outfit_suggestion"],
+                "new_item": session["selected_item"],
+            }
             try:
-                session["fit_card"] = create_fit_card(
-                    session["outfit_suggestion"], session["selected_item"]
-                )
-            except ModelUnavailable as exc:
+                session["fit_card"] = call_tool("create_fit_card", fit_card_inputs)
+            except MCPError as exc:
                 next_step = _stop_on_model_error(session, "create_fit_card", exc)
                 continue
             trace.step(
-                "create_fit_card",
-                inputs=last_received("create_fit_card"),
+                "create_fit_card (via MCP)",
+                inputs=fit_card_inputs["new_item"],
                 returned=session["fit_card"],
             )
             next_step = "done"
@@ -231,22 +269,25 @@ def parse_query(query: str) -> dict:
     return {"description": description, "size": size, "max_price": max_price}
 
 
-def _stop_on_model_error(session: dict, step: str, exc: ModelUnavailable) -> str:
+def _stop_on_model_error(session: dict, step: str, exc: Exception) -> str:
     """Record which model step failed, say what to do, and end the loop."""
     item = session["selected_item"]
     stage = "the outfit" if step == "suggest_outfit" else "the fit card"
     session["error"] = (
-        f"Couldn't reach the model while writing {stage}, so FitFindr stopped "
-        f"there. {exc} Your search did find {item['title']} "
-        f"(${item['price']:g} on {item['platform']}); run the same query again "
-        f"once the model is reachable."
+        f"Couldn't write {stage}, so FitFindr stopped there. {exc} Your search "
+        f"did find {item['title']} (${item['price']:g} on {item['platform']}); "
+        f"run the same query again once that's fixed."
     )
-    trace.step(step, inputs=item, note="model unavailable, stopping")
+    trace.step(step, inputs=item, note="model or MCP server unavailable, stopping")
     return "done"
 
 
-def _no_results_message(parsed: dict) -> str:
-    """Say what was searched for and which parts the user could loosen."""
+def _no_results_message(parsed: dict, retried: bool = False) -> str:
+    """Say what was searched for and which parts the user could loosen.
+
+    `retried` means a second search without the size also came back empty,
+    so the size isn't worth suggesting.
+    """
     searched = f"'{parsed['description']}'" if parsed["description"] else "your query"
     limits = []
     if parsed["size"]:
@@ -254,9 +295,13 @@ def _no_results_message(parsed: dict) -> str:
     if parsed["max_price"] is not None:
         limits.append(f"under ${parsed['max_price']:g}")
     where = f" in {' and '.join(limits)}" if limits else ""
+    if retried:
+        where += ", or in any size" + (
+            f" under ${parsed['max_price']:g}" if parsed["max_price"] is not None else ""
+        )
 
     tips = []
-    if parsed["size"]:
+    if parsed["size"] and not retried:
         tips.append("drop the size or try a neighbouring one")
     if parsed["max_price"] is not None:
         tips.append("raise the max price")

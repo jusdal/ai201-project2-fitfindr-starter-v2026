@@ -28,6 +28,7 @@ right trade for one unit.
 
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -60,6 +61,13 @@ def call_tool(name: str, arguments: dict):
     except MCPError:
         raise
     except Exception as exc:  # noqa: BLE001 — re-raised readably below
+        # An MCPError raised inside the session arrives wrapped in nested
+        # ExceptionGroups. Pass the tool's own message on instead of losing it.
+        inner = exc
+        while len(getattr(inner, "exceptions", ())) == 1:
+            inner = inner.exceptions[0]
+        if isinstance(inner, MCPError):
+            raise inner from None
         raise MCPError(
             f"Couldn't call '{name}' over MCP: {exc}\n"
             f"Check that mcp_server.py runs on its own first:\n"
@@ -72,9 +80,13 @@ async def _call(name: str, arguments: dict):
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
 
+    # Pass this process's environment through. By default the server starts
+    # with only a few variables, so a setting like AI201_CACHE=0 would not
+    # reach a tool that calls the model.
     params = StdioServerParameters(
         command=sys.executable,
         args=[str(SERVER)],
+        env=dict(os.environ),
     )
 
     async with stdio_client(params) as (read, write):

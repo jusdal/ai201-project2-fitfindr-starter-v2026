@@ -61,7 +61,8 @@ from mcp.server.fastmcp import FastMCP
 
 from tools import (
     search_listings as _search_listings_impl,
-)  # noqa: F401 — you'll use this below
+    create_fit_card as _create_fit_card_impl,
+)
 
 # log_level="WARNING" keeps the server from printing an INFO line for every
 # request. Without it your terminal fills with "Processing request of type
@@ -89,6 +90,21 @@ def search_listings(
     Returns an empty list [] (not null, not an error) when nothing matches.
     """
     return _search_listings_impl(description, size, max_price)
+
+
+@mcp.tool()
+def create_fit_card(outfit: str, new_item: dict) -> str:
+    """
+    Write a 2-4 sentence social-media caption about a thrifted find, in the
+    voice of a real post rather than a product listing. `outfit` (str) is the
+    outfit suggestion to describe; `new_item` (object) is one listing dict as
+    returned by search_listings, and its title, price (US dollars) and
+    platform each appear once in the caption. Calls a language model. If
+    `outfit` is empty or only whitespace, returns the string "Can't write a fit
+    card without an outfit suggestion." without calling the model. If the
+    model can't be reached, the call fails with an error saying why.
+    """
+    return _create_fit_card_impl(outfit, new_item)
 
 
 #
